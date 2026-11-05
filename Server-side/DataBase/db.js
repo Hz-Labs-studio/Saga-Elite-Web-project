@@ -1,12 +1,17 @@
 const mongoose = require("mongoose");
 const logger = require("../Utils/logger");
 
-let isConnected = false;
+let cachedPromise = null;
 
 const connectToDB = async () => {
-  if (isConnected) {
+  if (mongoose.connection.readyState === 1) {
     logger.debug("Using existing MongoDB connection");
-    return;
+    return mongoose.connection;
+  }
+
+  if (cachedPromise) {
+    logger.debug("Reusing in-flight MongoDB connection promise");
+    return cachedPromise;
   }
 
   let mongoUri = process.env.MONGO_DB_URI;
@@ -23,90 +28,87 @@ const connectToDB = async () => {
       );
       mongoUri = fallback;
     } else {
-      logger.error("MONGO_DB_URI is not defined in environment variables");
-      process.exit(1);
+      const err = new Error("MONGO_DB_URI is not defined in environment variables");
+      logger.error(err.message);
+      if (!process.env.VERCEL && process.env.NODE_ENV !== "test") {
+        process.exit(1);
+      }
+      throw err;
     }
   }
 
-  const hasDatabase = /\/[^\/?]+(\?.*)?$/.test(mongoUri);
+  const hasDatabase = /\/[^/?]+(\?.*)?$/.test(mongoUri);
   if (!hasDatabase) {
     mongoUri = `${mongoUri.replace(/\/?$/, "")}/sagaelite`;
   }
 
-  try {
-    logger.info("Attempting to connect to MongoDB");
+  const safeUri = mongoUri.replace(/\/\/.*@/, "//<credentials>@");
+  logger.info("Attempting to connect to MongoDB", { target: safeUri });
 
-    const safeUri = mongoUri.replace(/\/\/.*@/, "//<credentials>@");
-    logger.debug("MongoDB connection target prepared", { uri: safeUri });
+  const opts = {
+    serverSelectionTimeoutMS: 5000,
+    maxPoolSize: process.env.VERCEL ? 5 : 10,
+    bufferCommands: false,
+  };
 
-    await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 5000,
-      maxPoolSize: 10,
-    });
-
-    isConnected = mongoose.connection.readyState === 1;
-
-    if (isConnected) {
+  cachedPromise = mongoose
+    .connect(mongoUri, opts)
+    .then((m) => {
       logger.info("MongoDB connected successfully", {
-        database: mongoose.connection.db.databaseName,
-        host: mongoose.connection.host,
+        database: m.connection.db?.databaseName || "sagaelite",
+        host: m.connection.host,
       });
-    }
 
-    mongoose.connection.on("error", (err) => {
-      logger.error("MongoDB connection error", { error: err });
-      isConnected = false;
-    });
+      m.connection.on("error", (err) => {
+        logger.error("MongoDB connection error", { error: err?.message || String(err) });
+        cachedPromise = null;
+      });
 
-    mongoose.connection.on("disconnected", () => {
-      logger.warn("MongoDB disconnected; will attempt to reconnect on next use");
-      isConnected = false;
-    });
-  } catch (error) {
-    logger.error("MongoDB connection failed", { error: error.message, attemptedUri: mongoUri });
+      m.connection.on("disconnected", () => {
+        logger.warn("MongoDB disconnected; will attempt to reconnect on next use");
+        cachedPromise = null;
+      });
 
-    if (process.env.NODE_ENV !== "production" && mongoUri !== "mongodb://127.0.0.1:27017/sagaelite") {
-      const localFallback = "mongodb://127.0.0.1:27017/sagaelite";
-      logger.warn(
-        "Attempting local MongoDB fallback after connection failure",
-        { fallback: localFallback }
-      );
+      return m.connection;
+    })
+    .catch(async (error) => {
+      cachedPromise = null;
+      logger.error("MongoDB connection failed", {
+        error: error.message,
+        attemptedUri: safeUri,
+      });
 
-      try {
-        await mongoose.connect(localFallback, {
-          serverSelectionTimeoutMS: 5000,
-          maxPoolSize: 10,
-        });
+      if (
+        process.env.NODE_ENV !== "production" &&
+        mongoUri !== "mongodb://127.0.0.1:27017/sagaelite"
+      ) {
+        const localFallback = "mongodb://127.0.0.1:27017/sagaelite";
+        logger.warn(
+          "Attempting local MongoDB fallback after connection failure",
+          { fallback: localFallback }
+        );
 
-        isConnected = mongoose.connection.readyState === 1;
-
-        if (isConnected) {
-          logger.info("MongoDB connected successfully", {
-            database: mongoose.connection.db.databaseName,
-            host: mongoose.connection.host,
+        try {
+          const fallbackConn = await mongoose.connect(localFallback, opts);
+          logger.info("MongoDB fallback connected successfully", {
+            database: fallbackConn.connection.db?.databaseName || "sagaelite",
+            host: fallbackConn.connection.host,
+          });
+          return fallbackConn.connection;
+        } catch (fallbackError) {
+          logger.error("Local MongoDB fallback also failed", {
+            error: fallbackError.message,
           });
         }
-
-        mongoose.connection.on("error", (err) => {
-          logger.error("MongoDB connection error", { error: err });
-          isConnected = false;
-        });
-
-        mongoose.connection.on("disconnected", () => {
-          logger.warn("MongoDB disconnected; will attempt to reconnect on next use");
-          isConnected = false;
-        });
-
-        return;
-      } catch (fallbackError) {
-        logger.error("Local MongoDB fallback also failed", {
-          error: fallbackError.message,
-        });
       }
-    }
 
-    process.exit(1);
-  }
+      if (!process.env.VERCEL && process.env.NODE_ENV !== "test") {
+        process.exit(1);
+      }
+      throw error;
+    });
+
+  return cachedPromise;
 };
 
 module.exports = connectToDB;

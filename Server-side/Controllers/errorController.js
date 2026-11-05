@@ -1,31 +1,8 @@
-const winston = require('winston');
-const fs = require('fs');
-const path = require('path');
+const logger = require("../Utils/logger");
 
-const logsDir = path.resolve(process.cwd(), 'logs');
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
-}
-
-// Configure a simple error logger (reuse or minimal)
-const errorLogger = winston.createLogger({
-    level: 'error',
-    format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-    ),
-    transports: [
-        new winston.transports.File({ filename: 'logs/errors.log' }),
-    ],
-});
-
-if (process.env.NODE_ENV !== 'production') {
-    errorLogger.add(new winston.transports.Console());
-}
-
-module.exports = (err, req, res, next) => {
+module.exports = (err, req, res, _next) => {
     // Log the error with details
-    errorLogger.error({
+    logger.error({
         message: err.message,
         stack: err.stack,
         url: req.originalUrl,
