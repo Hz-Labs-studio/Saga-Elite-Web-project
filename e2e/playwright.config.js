@@ -5,24 +5,26 @@ const dotenv = require("dotenv");
 dotenv.config({ path: path.resolve(__dirname, ".env.test") });
 
 const REPO_ROOT = path.resolve(__dirname, "..");
-const BASE_URL = process.env.E2E_BASE_URL;
 const BACKEND_PORT = Number(process.env.E2E_BACKEND_PORT || 5001);
 const FRONTEND_PORT = Number(process.env.E2E_FRONTEND_PORT || 5173);
 
-process.env.E2E_BACKEND_URL =
-  process.env.E2E_BACKEND_URL || `http://127.0.0.1:${BACKEND_PORT}`;
-process.env.E2E_BASE_URL =
+const BASE_URL =
   process.env.E2E_BASE_URL || `http://localhost:${FRONTEND_PORT}`;
+const BACKEND_URL =
+  process.env.E2E_BACKEND_URL || `http://127.0.0.1:${BACKEND_PORT}`;
+
+process.env.E2E_BACKEND_URL = BACKEND_URL;
+process.env.E2E_BASE_URL = BASE_URL;
 
 const TEST_DB_URI =
-  process.env.MONGODB_TEST_URI || "mongodb://127.0.0.1:27017/saga_elite_test";
+  process.env.MONGODB_TEST_URI || process.env.MONGO_DB_URI || "mongodb://127.0.0.1:27017/saga_elite_test";
 
 const sharedServerEnv = {
   ...process.env,
   NODE_ENV: "test",
   PORT: String(BACKEND_PORT),
   MONGO_DB_URI: TEST_DB_URI,
-  E2E_BACKEND_URL: `http://127.0.0.1:${BACKEND_PORT}`,
+  E2E_BACKEND_URL: BACKEND_URL,
   E2E_BASE_URL: BASE_URL,
   JWT_SECRET:
     process.env.JWT_SECRET ||
@@ -90,7 +92,7 @@ module.exports = defineConfig({
       timeout: 120_000,
       env: {
         ...process.env,
-        VITE_BACKEND_TARGET: `http://127.0.0.1:${BACKEND_PORT}`,
+        VITE_BACKEND_TARGET: BACKEND_URL,
         VITE_API_URL: "/api",
       },
       stdout: "pipe",
