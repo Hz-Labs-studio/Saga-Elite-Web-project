@@ -1,215 +1,212 @@
-# Saga Elite — Production Deployment Guide
+# Saga Elite — Production Vercel Deployment Guide
 
-This guide covers deploying Saga Elite to its production stack:
-
-| Layer    | Service              | What it hosts                          |
-| -------- | -------------------- | -------------------------------------- |
-| Frontend | **Netlify**          | React/Vite SPA (`Client-Side/`)        |
-| Backend  | **Railway**          | Express API + Socket.IO (`Server-side/`) |
-| Database | **MongoDB Atlas**    | Managed MongoDB cluster                |
-| Media    | **Cloudinary**       | Product / banner image storage         |
-
-> **Local development is unchanged.** It uses a single root `.env` (see the root
-> `.env.example`). The per-workspace `Server-side/.env.example` and
-> `Client-Side/.env.example` files document what each *deployment target* needs.
+This guide provides definitive, production-grade instructions for deploying Saga Elite to **Vercel** for both Frontend and Backend, backed by **MongoDB Atlas**, **Cloudinary**, and **PayHere**.
 
 ---
 
-## 0. Recommended order
+## 1. Architecture & Hosting Topology
 
-Because each side needs the other's URL, deploy in this order to avoid an extra
-redeploy:
+```
+                                  [ User Browser ]
+                                         │
+                         ┌───────────────┴───────────────┐
+                         ▼                               ▼
+                 [ Vercel Frontend ]             [ Vercel Backend ]
+                  React 19 / Vite SPA            Express 5 Serverless
+               (https://sagaelite.com)        (https://api.sagaelite.com)
+                         │                               │
+                         │                   ┌───────────┼───────────┐
+                         │                   ▼           ▼           ▼
+                         │              [ MongoDB ] [Cloudinary] [PayHere]
+                         │                Atlas       Media      Gateway
+                         │                                           │
+                         └───────────────── Webhook Callback ────────┘
+```
 
-1. **MongoDB Atlas** — create the cluster + connection string (§3).
-2. **Decide your Netlify site name** first (e.g. `saga-elite`) so you already
-   know the frontend URL: `https://saga-elite.netlify.app`.
-3. **Railway backend** — deploy with `FRONTEND_URL` / `CLIENT_URL` set to that
-   Netlify URL (§1). Generate the public domain, e.g.
-   `https://saga-elite-api.up.railway.app`.
-4. **Netlify frontend** — deploy with `VITE_API_URL` pointing at the Railway
-   domain (§2).
-5. Run the **verification checklist** (§5).
-
----
-
-## 1. Backend → Railway
-
-A `railway.json` blueprint is included at the repo root (start command + health
-check + restart policy). Railway builds with **Nixpacks** and pins the Node
-version from `.nvmrc` (`20.19.0`).
-
-| Setting             | Value                                   |
-| ------------------- | --------------------------------------- |
-| Builder             | Nixpacks (auto-detected)                |
-| Root Directory      | *(repo root — leave blank / `/`)*       |
-| Build               | `npm install` (auto, from the lockfile) |
-| Start Command       | `npm start` (from `railway.json`)       |
-| Health Check Path   | `/health` (from `railway.json`)         |
-| Branch              | `Development` *(where the config lives)* |
-| Node version        | `20.19.0` (from `.nvmrc`)               |
-
-**Steps**
-
-1. Go to [railway.com](https://railway.com) and **sign in with GitHub**.
-2. **New Project → Deploy from GitHub repo** → authorize and select
-   `Saga-Elite-Web-project`.
-3. Open the service → **Settings → Source**: set **Branch = `Development`** and
-   **Root Directory = `/`**. Railway picks up `railway.json` automatically.
-4. Open the **Variables** tab and add the variables from the
-   [Backend variables](#backend-environment-variables) table. **Minimum to boot
-   and test login:** `NODE_ENV=production`, `MONGO_DB_URI`, `JWT_SECRET`,
-   `FRONTEND_URL`, `CLIENT_URL`. Add the `CLOUDINARY_*` and `SMTP_*` sets for
-   image uploads and email.
-   - ⚠️ **Set `NODE_ENV=production` yourself** — Railway does **not** set it for
-     you, and without it the app runs in dev mode (permissive CORS, non-secure
-     cookies, file-only logging).
-   - ⚠️ **Do NOT set `PORT`** — Railway injects it automatically and the server
-     already reads `process.env.PORT`.
-5. **Settings → Networking → Generate Domain** to get the public URL, e.g.
-   `https://saga-elite-api.up.railway.app`.
-6. Watch **Deploy Logs** until `MongoDB connected successfully` and
-   `Server is listening` appear (redeploy from the Deployments tab if you added
-   variables after the first build).
-7. Verify `https://<your-domain>.up.railway.app/health` returns
-   `{"status":"ok",...}`.
-
-> **Plan note:** Railway has no permanent free tier — you get a one-time trial
-> credit, then the usage-based Hobby plan (see
-> [railway.com/pricing](https://railway.com/pricing)). The upside over a free
-> tier is that the service does **not** sleep, so there are no cold starts.
+| Layer | Platform | Architecture | Configuration File |
+|---|---|---|---|
+| **Frontend** | Vercel | Single Page Application (React 19 + Vite + Tailwind) | `Client-Side/vercel.json` |
+| **Backend** | Vercel | Serverless Express Function (`api/index.js`) | `vercel.json` |
+| **Database** | MongoDB Atlas | M0 / Dedicated Managed Replica Set | `Server-side/DataBase/db.js` |
+| **Media Storage** | Cloudinary | Asset Upload & CDN Delivery | `Server-side/Utils/image-upload.js` |
+| **Payments** | PayHere | Card Gateway + Webhook Verification | `Server-side/Utils/payhere-service.js` |
+| **Cron Jobs** | Vercel Cron | Scheduled Invocations (Crons array in `vercel.json`) | `Server-side/Routes/cron-routes.js` |
 
 ---
 
-## 2. Frontend → Netlify
+## 2. Prerequisites & Pre-Deployment Checklist
 
-A `netlify.toml` blueprint is included at the repo root (build command, publish
-dir, Node version, and SPA redirect are pre-configured).
-
-| Setting           | Value                |
-| ----------------- | -------------------- |
-| Base directory    | *(repo root — blank)* |
-| Build command     | `npm run build`      |
-| Publish directory | `Client-Side/dist`   |
-
-**Steps**
-
-1. **Add new site → Import an existing project**; connect this GitHub repo and
-   pick the `Development` branch.
-2. Netlify reads `netlify.toml` automatically — leave the build settings as
-   detected.
-3. **(Recommended)** Site settings → change the site name to your chosen slug so
-   the URL is stable and matches what you set as `FRONTEND_URL` on Railway.
-4. Under **Site settings → Environment variables**, add the
-   [Frontend variables](#frontend-environment-variables). At minimum
-   `VITE_API_URL`.
-5. **Deploy site.** After the build, open the site and confirm it loads.
-
-> If you deployed Railway *after* picking the Netlify name, double-check that
-> Railway's `FRONTEND_URL` / `CLIENT_URL` exactly match the final Netlify URL
-> (scheme + host, no trailing slash), then trigger a Railway redeploy.
-
----
-
-## 3. Database → MongoDB Atlas
-
-1. Create an account at [mongodb.com/atlas](https://www.mongodb.com/atlas) and a
-   new **free (M0) cluster** (pick a region near you).
-2. **Database Access → Add New Database User**: create a user with a strong
-   password and the *Read and write to any database* role. Record the username
-   and password.
-3. **Network Access → Add IP Address**: for Railway, allow `0.0.0.0/0`
-   (Railway egress IPs are dynamic). Tighten later if you adopt static egress.
-4. **Connect → Drivers** to copy the connection string. It looks like:
+Before deploying to Vercel, ensure you have:
+1. A **Vercel** account (<https://vercel.com>).
+2. A **MongoDB Atlas** cluster with Network Access configured (0.0.0.0/0 or AWS region peering).
+3. A **Cloudinary** account with API Key and Secret.
+4. A **PayHere** Merchant Account (Merchant ID & Secret).
+5. A generated 32+ character string for `JWT_SECRET`:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
-   mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
-   ```
-5. Insert the password and a **database name** before the `?`:
-   ```
-   mongodb+srv://saga_user:S3cr3t@cluster0.ab12c.mongodb.net/sagaelite?retryWrites=true&w=majority
-   ```
-6. Use this as `MONGO_DB_URI` on Railway.
+6. A generated 32+ character string for `CRON_SECRET`.
 
 ---
 
-## 4. Environment variable reference
+## 3. Backend Deployment (Vercel Serverless Function)
 
-### Backend environment variables
+The backend runs as a serverless Node.js Express 5 function defined in `api/index.js` and configured via root `vercel.json`.
 
-Set these on **Railway** (Variables tab). Required ones block startup or core
-features if missing.
+### 3.1 Project Settings in Vercel
+- **Project Name:** `saga-elite-backend` (or custom name)
+- **Framework Preset:** Other
+- **Root Directory:** `./` (Repository root)
+- **Node.js Version:** `20.x` or `22.x`
+- **Build Command:** *(leave empty)*
+- **Output Directory:** *(leave empty)*
 
-| Variable | Description | Example | Required |
-| -------- | ----------- | ------- | -------- |
-| `NODE_ENV` | Runtime mode; enables prod CORS, secure cookies, stdout logging — **Railway does not set this for you** | `production` | ✅ |
-| `MONGO_DB_URI` | MongoDB Atlas connection string (incl. db name) | `mongodb+srv://user:pass@c0.mongodb.net/sagaelite` | ✅ |
-| `JWT_SECRET` | Secret used to sign JWTs — **min 32 chars** | *(32+ random chars)* | ✅ |
-| `FRONTEND_URL` | SPA origin; gates CORS + Socket.IO in production | `https://saga-elite.netlify.app` | ✅ |
-| `CLIENT_URL` | Socket.IO allowed origin (usually = `FRONTEND_URL`) | `https://saga-elite.netlify.app` | ✅ |
-| `FRONTEND_URLS` | Extra comma-separated origins | `https://www.sagaelite.com` | Optional |
-| `JWT_EXPIRES_IN` | Token lifetime | `7d` | Optional (default `7d`) |
-| `JWT_COOKIE_EXPIRES_IN` | Cookie lifetime in days | `7` | Optional (default `7`) |
-| `LOG_LEVEL` | Winston level | `info` | Optional |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | `saga-elite` | ✅ (image uploads) |
-| `CLOUDINARY_API_KEY` | Cloudinary API key | `1234567890` | ✅ (image uploads) |
-| `CLOUDINARY_API_SECRET` | Cloudinary API secret | *(secret)* | ✅ (image uploads) |
-| `SMTP_HOST` | SMTP server host | `smtp.gmail.com` | ✅ (email) |
-| `SMTP_PORT` | SMTP port | `587` | ✅ (email) |
-| `SMTP_USER` | SMTP username | `apikey` / account | ✅ (email) |
-| `SMTP_PASS` | SMTP password / app password | *(secret)* | ✅ (email) |
-| `FROM_EMAIL` | "From" address on outgoing mail | `noreply@sagaelite.com` | ✅ (email) |
-| `FROM_NAME` | "From" display name | `Saga Elite` | Optional |
-| `ADMIN_EMAIL` | Admin notification recipient | `admin@sagaelite.com` | Optional |
-| `GOOGLE_CLIENT_ID` | Google OAuth client id (server check) | *(client id)* | Optional |
-| `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | Facebook login | *(app id/secret)* | Optional |
-| `PAYHERE_MERCHANT_ID` / `PAYHERE_MERCHANT_SECRET` / `PAYHERE_SANDBOX` | PayHere gateway | *(merchant creds)* | Optional |
-| `MANUAL_PAYMENT_*` | Bank-transfer display details on checkout | see `Server-side/.env.example` | Optional |
-| `BANK_INBOX_*` / `BANK_SMS_WEBHOOK_SECRET` | Auto-confirm bank transfers | see template | Optional |
-| `WHATSAPP_*` | WhatsApp Cloud API (order alerts / OTP) | see template | Optional |
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | AI Insights & review classification (Claude) | `sk-ant-...` / `claude-opus-4-8` | Optional |
+### 3.2 Backend Environment Variables Matrix
 
-> Do **not** set `PORT` — Railway injects it. The full annotated list is in
-> **`Server-side/.env.example`**.
-
-### Frontend environment variables
-
-Set these on **Netlify** (read at build time; `VITE_`-prefixed only).
-
-| Variable | Description | Example | Required |
-| -------- | ----------- | ------- | -------- |
-| `VITE_API_URL` | Absolute backend API URL incl. `/api` (app appends `/v1`) | `https://saga-elite-api.up.railway.app/api` | ✅ |
-| `VITE_SOCKET_URL` | Socket.IO origin; derived from `VITE_API_URL` if blank | `https://saga-elite-api.up.railway.app` | Optional |
-| `VITE_APP_NAME` | Display name | `Saga Elite` | Optional |
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client id (blank hides the button) | *(client id)* | Optional |
-| `VITE_FACEBOOK_APP_ID` | Facebook app id (blank hides the button) | *(app id)* | Optional |
-
-> The full list is in **`Client-Side/.env.example`**.
+| Variable | Description | Required? | Production Value / Example |
+|---|---|---|---|
+| `NODE_ENV` | Environment mode | **Yes** | `production` |
+| `MONGO_DB_URI` | MongoDB Atlas Connection String | **Yes** | `mongodb+srv://<user>:<password>@cluster.mongodb.net/sagaelite?retryWrites=true&w=majority` |
+| `JWT_SECRET` | Secret key for JWT signing (>= 32 chars) | **Yes** | *(generated 64-char hex)* |
+| `JWT_EXPIRES_IN` | Access token lifespan | No | `7d` (default: 7d) |
+| `FRONTEND_URL` | Canonical origin of your Frontend | **Yes** | `https://sagaelite.com` |
+| `FRONTEND_URLS` | Comma-separated preview / alternate domains | No | `https://saga-elite-web-project.vercel.app` |
+| `CRON_SECRET` | Bearer token for Vercel Cron authentication | **Yes** | *(generated secret string)* |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary Cloud Name | **Yes** | `saga-elite` |
+| `CLOUDINARY_API_KEY` | Cloudinary API Key | **Yes** | `918273645123456` |
+| `CLOUDINARY_API_SECRET` | Cloudinary API Secret | **Yes** | `AbCdEf123456` |
+| `PAYHERE_MERCHANT_ID` | PayHere Merchant Identifier | **Yes** | `1234567` |
+| `PAYHERE_MERCHANT_SECRET` | PayHere Merchant Secret | **Yes** | *(from PayHere portal)* |
+| `PAYHERE_SANDBOX` | Use PayHere sandbox gateway | No | `false` (in live prod) / `true` (in staging) |
+| `PAYHERE_NOTIFY_URL` | Public callback URL for PayHere IPN | **Yes** | `https://api.sagaelite.com/api/webhooks/payhere` |
+| `SMTP_HOST` | SMTP Host for transactional emails | Optional | `smtp.resend.com` / `smtp.sendgrid.net` |
+| `SMTP_PORT` | SMTP Port | Optional | `587` |
+| `SMTP_USER` | SMTP Username | Optional | `resend` |
+| `SMTP_PASS` | SMTP Password / API Key | Optional | *(SMTP key)* |
+| `FROM_EMAIL` | Sender email address | Optional | `noreply@sagaelite.com` |
+| `FROM_NAME` | Sender display name | Optional | `Saga Elite Atelier` |
+| `ANTHROPIC_API_KEY` | Claude API key for AI Insights | Optional | *(Anthropic API Key)* |
 
 ---
 
-## 5. Final verification checklist
+## 4. Frontend Deployment (Vercel SPA)
 
-After both sides are live, confirm each item:
+The frontend is a Vite + React 19 application located in the `Client-Side/` workspace.
 
-- [ ] **No secrets in the repo** — `git ls-files | grep -i env` returns only
-      `*.env.example` files (and `e2e/.env.test.example`).
-- [ ] **Backend health** — `GET /health` on the Railway URL returns `200 ok`.
-- [ ] **MongoDB connects** — Railway logs show `MongoDB connected successfully`.
-- [ ] **Auth works** — register / log in from the live site; a session persists
-      on refresh.
-- [ ] **CORS** — no CORS errors in the browser console on the live site.
-- [ ] **Socket.IO** — realtime features (notification bell, order updates)
-      connect; no websocket errors in the console.
-- [ ] **Image uploads** — an admin can upload a product image (Cloudinary).
-- [ ] **Email** — a transactional email (e.g. OTP / order confirmation) is
-      received.
-- [ ] **Production build** — `npm run build` completes without errors.
-- [ ] **No localhost references** — the network tab shows requests to the
-      Railway URL, not `localhost`.
+### 4.1 Project Settings in Vercel
+- **Project Name:** `saga-elite-frontend`
+- **Framework Preset:** Vite
+- **Root Directory:** `Client-Side`
+- **Build Command:** `npm run build`
+- **Output Directory:** `dist`
+- **Install Command:** `npm install`
+
+### 4.2 Frontend Environment Variables
+
+| Variable | Description | Value / Example |
+|---|---|---|
+| `VITE_API_URL` | Base URL pointing to the deployed Backend API | `https://api.sagaelite.com/api` (or `/api` if using reverse proxy rewrite) |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth Web Client ID | `123456-abc.apps.googleusercontent.com` |
+| `VITE_FACEBOOK_APP_ID` | Facebook App ID (Optional) | `1234567890` |
 
 ---
 
-## 6. Redeploying after changes
+## 5. MongoDB Atlas Connection Pooling & Reliability
 
-- **Code:** push to the connected branch — Railway and Netlify auto-deploy.
-- **Env vars:** see `CLIENT_HANDOVER.md` for how the client updates and restarts
-  each service, and how to rotate a leaked secret.
+Because Vercel executes the backend as serverless functions, database connections must be pooled and cached across invocations within the same Lambda container:
+
+- **Connection Caching:** Configured in `Server-side/DataBase/db.js` using `global.__mongooseConnectionCache`.
+- **Pool Sizing:**
+  - `maxPoolSize: 5` (for serverless to avoid exhausting Atlas M0/M10 connection limits).
+  - `minPoolSize: 0` (allows idle serverless containers to spin down without holding sockets).
+- **Timeouts:**
+  - `serverSelectionTimeoutMS: 5000`
+  - `connectTimeoutMS: 10000`
+  - `socketTimeoutMS: 45000`
+- **Automatic Retries:** Enabled with connection state detection (`readyState === 1`).
+
+---
+
+## 6. PayHere Webhook Configuration
+
+PayHere sends IPN (Instant Payment Notification) server-to-server callbacks when a customer pays via card:
+
+1. **Callback Route:**
+   - Both `/api/webhooks/payhere` and `/api/v1/payhere/notify` are active.
+2. **Signature Verification:**
+   - Handled with `crypto.timingSafeEqual` against the MD5 hash generated with `PAYHERE_MERCHANT_SECRET`.
+3. **Notify URL Setup in PayHere Merchant Portal:**
+   - Navigate to **PayHere Merchant Portal → Settings → Domains & Credentials**.
+   - Set **Notification URL** to:
+     `https://<your-backend-domain>/api/webhooks/payhere`
+
+---
+
+## 7. Vercel Cron Jobs Setup
+
+Vercel Crons trigger scheduled background workers at declared intervals via HTTP calls.
+
+### 7.1 Schedules in `vercel.json`
+```json
+{
+  "crons": [
+    {
+      "path": "/api/v1/cron/cleanup-expired-payments",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/v1/cron/aging-stock",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/v1/cron/cart-abandonment",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/v1/cron/guest-promo",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/v1/cron/recommendations-digest",
+      "schedule": "0 8 * * 0"
+    }
+  ]
+}
+```
+
+### 7.2 Authorization
+All cron endpoints require either:
+- The standard `x-vercel-cron: "1"` header attached automatically by Vercel's Cron scheduler.
+- An `Authorization: Bearer <CRON_SECRET>` header matching the environment variable `CRON_SECRET`.
+
+---
+
+## 8. Custom Domains & DNS Setup
+
+To connect custom domains:
+
+1. **Backend API (`api.sagaelite.com`):**
+   - Vercel Dashboard → `saga-elite-backend` → Settings → Domains.
+   - Add `api.sagaelite.com`.
+   - Add DNS `CNAME` record pointing `api` to `cname.vercel-dns.com`.
+
+2. **Frontend Storefront (`sagaelite.com`):**
+   - Vercel Dashboard → `saga-elite-frontend` → Settings → Domains.
+   - Add `sagaelite.com` and `www.sagaelite.com`.
+   - Add DNS `A` record pointing `@` to `76.76.21.21` and `CNAME` for `www` to `cname.vercel-dns.com`.
+
+---
+
+## 9. Rollback & Troubleshooting Procedures
+
+### 9.1 Immediate Rollback
+1. Go to **Vercel Dashboard → Deployments**.
+2. Locate the last stable deployment.
+3. Click the three dots menu `...` → **Instant Rollback**.
+4. Traffic is rerouted in < 3 seconds without a rebuild.
+
+### 9.2 Common Errors & Fixes
+- **500 `JWT_SECRET is required` or `< 32 characters`:** Ensure `JWT_SECRET` is set in Vercel project environment variables and contains at least 32 characters.
+- **504 Gateway Timeout:** Check MongoDB Atlas Network Access; ensure `0.0.0.0/0` is whitelisted.
+- **CORS Rejected on Preview Deployments:** Ensure preview domains match `https://saga-elite*.vercel.app` (handled automatically by `Config/cors-config.js`).
+- **PayHere 403 Invalid Signature:** Verify `PAYHERE_MERCHANT_SECRET` in Vercel matches your PayHere Merchant portal setting exactly.
