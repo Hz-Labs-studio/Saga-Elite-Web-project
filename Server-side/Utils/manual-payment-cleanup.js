@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const ManualPayment = require("../Models/ManualPayment");
 const Order = require("../Models/Order");
 const { createNotification } = require("./notification-service");
@@ -18,6 +19,11 @@ const buildExpiryEmail = (payment) =>
   );
 
 const markExpiredManualPayments = async () => {
+  if (mongoose.connection.readyState !== 1) {
+    logger.warn("[cleanup] Skipping markExpiredManualPayments: database is disconnected");
+    return 0;
+  }
+
   const now = new Date();
 
   const expiringPayments = await ManualPayment.find({
@@ -58,7 +64,7 @@ const markExpiredManualPayments = async () => {
           meta: {
             orderId: order._id,
             referenceNumber: payment.referenceNumber,
-            status: "expired",
+            status: "cancelled",
           },
         });
       }
@@ -72,21 +78,20 @@ const markExpiredManualPayments = async () => {
             html: buildExpiryEmail(payment),
           });
         } catch (emailError) {
-          logger.error("Failed to send manual payment expiry email", { emailError });
+          logger.error("Failed to send expiry email", { emailError });
         }
       }
 
-      const customerPhone = cleanPhoneNumber(order.contactNumber);
-      if (customerPhone) {
+      const phone = cleanPhoneNumber(order.shippingAddress?.phone || payment.guestPhone);
+      if (phone) {
         try {
           await sendWhatsAppMessage({
-            to: customerPhone,
-            message: `Saga Elite: your payment reference ${payment.referenceNumber} expired because no proof was submitted within 24 hours. Please place a new order if you still want to continue.`,
+            to: phone,
+            templateName: "payment_expired",
+            variables: [payment.referenceNumber],
           });
-        } catch (whatsAppError) {
-          logger.error("Failed to send manual payment expiry WhatsApp message", {
-            error: whatsAppError?.message || String(whatsAppError),
-          });
+        } catch (waError) {
+          logger.error("Failed to send expiry WhatsApp message", { waError });
         }
       }
     }
@@ -96,6 +101,11 @@ const markExpiredManualPayments = async () => {
 };
 
 const markExpiredCardOrders = async () => {
+  if (mongoose.connection.readyState !== 1) {
+    logger.warn("[cleanup] Skipping markExpiredCardOrders: database is disconnected");
+    return 0;
+  }
+
   const now = new Date();
 
   const expiredOrders = await Order.find({
@@ -146,6 +156,10 @@ const markExpiredCardOrders = async () => {
 };
 
 const pruneExpiredManualPayments = async () => {
+  if (mongoose.connection.readyState !== 1) {
+    return 0;
+  }
+
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const result = await ManualPayment.deleteMany({
     status: "expired",

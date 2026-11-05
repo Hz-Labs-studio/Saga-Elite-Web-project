@@ -17,6 +17,7 @@ const {
 } = require("./Middlewares/rateLimitinMiddleware");
 const { requestLogger } = require("./Middlewares/customMiddleware");
 const maintenanceMode = require("./Middlewares/maintenance-mode");
+const AppError = require("./Utils/appError");
 const globalErrorController = require("./Controllers/errorController");
 const guestTrackingMiddleware = require("./Middlewares/guest-tracking-middleware");
 const { identifyCustomer } = require("./Middlewares/customer-middleware");
@@ -160,6 +161,11 @@ app.use("/api/v1/shipping-zones", shippingZoneRoutes);
 app.use("/api/v1/customer", customerRoutes);
 app.use("/api/v1/events", eventRoutes);
 app.use("/api/v1/stats", statsRoutes);
+
+// Catch-all 404 handler for unhandled routes
+app.use((req, _res, next) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
+});
 
 // Global Error Handler
 app.use(globalErrorController);
