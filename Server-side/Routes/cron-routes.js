@@ -1,9 +1,6 @@
 const express = require("express");
 const logger = require("../Utils/logger");
-const {
-  markExpiredManualPayments,
-  markExpiredCardOrders,
-} = require("../Utils/manual-payment-cleanup");
+const manualPaymentCleanup = require("../Utils/manual-payment-cleanup");
 const { checkAgingStock } = require("../Utils/aging-stock-job");
 const { runCartAbandonmentBatch } = require("../Utils/cart-abandonment-job");
 const { runGuestPromoBatch } = require("../Utils/guest-promo-job");
@@ -22,7 +19,7 @@ const verifyCronAuth = (req, res, next) => {
   const isVercelCron = req.headers["x-vercel-cron"] === "1";
 
   // In production, require either valid CRON_SECRET or verified Vercel Cron header
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || process.env.ENFORCE_CRON_AUTH === "true") {
     if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
       return next();
     }
@@ -52,15 +49,15 @@ router.use(verifyCronAuth);
 router.all("/cleanup-expired-payments", async (_req, res) => {
   logger.info("[Cron] Running expired payments cleanup");
   try {
-    const expiredPayments = await markExpiredManualPayments();
-    const expiredCards = await markExpiredCardOrders();
+    const expiredPayments = await manualPaymentCleanup.markExpiredManualPayments();
+    const expiredCards = await manualPaymentCleanup.markExpiredCardOrders();
     res.status(200).json({
       success: true,
       job: "cleanup-expired-payments",
       timestamp: new Date().toISOString(),
       result: {
-        expiredPaymentsCount: expiredPayments?.length || 0,
-        expiredCardOrdersCount: expiredCards?.length || 0,
+        expiredPaymentsCount: typeof expiredPayments === "number" ? expiredPayments : (expiredPayments?.length || 0),
+        expiredCardOrdersCount: typeof expiredCards === "number" ? expiredCards : (expiredCards?.length || 0),
       },
     });
   } catch (error) {
