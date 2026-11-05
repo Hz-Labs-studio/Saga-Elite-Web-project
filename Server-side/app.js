@@ -3,7 +3,6 @@ const cookieParser = require("cookie-parser");
 const path = require("path");
 const helmet = require("helmet");
 const compression = require("compression");
-const mongoose = require("mongoose");
 
 require("dotenv").config({
   path: path.resolve(__dirname, "../.env"),
@@ -21,6 +20,7 @@ const maintenanceMode = require("./Middlewares/maintenance-mode");
 const globalErrorController = require("./Controllers/errorController");
 const guestTrackingMiddleware = require("./Middlewares/guest-tracking-middleware");
 const { identifyCustomer } = require("./Middlewares/customer-middleware");
+const { getConnectionStatus } = require("./DataBase/db");
 
 // Validate runtime environment configuration
 validateRuntimeConfig();
@@ -45,11 +45,11 @@ app.use(compression());
 
 // Healthcheck endpoint placed early — responds immediately without DB buffering
 app.get("/health", (_req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+  const dbInfo = getConnectionStatus();
   res.status(200).json({
     status: "ok",
     uptime: process.uptime(),
-    database: dbStatus,
+    database: dbInfo.state,
     timestamp: new Date().toISOString(),
   });
 });
