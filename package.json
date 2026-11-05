@@ -20,7 +20,8 @@
     "test:e2e": "playwright test --config=e2e/playwright.config.js",
     "test:e2e:ui": "playwright test --config=e2e/playwright.config.js --ui",
     "seed:demo-admins": "npm --prefix Server-side run seed:demo-admins",
-    "seed:legal": "npm --prefix Server-side run seed:legal"
+    "seed:legal": "npm --prefix Server-side run seed:legal",
+    "test:unit": "npm --prefix Server-side run test:unit && npm --prefix Client-Side run test:unit"
   },
   "repository": {
     "type": "git",
