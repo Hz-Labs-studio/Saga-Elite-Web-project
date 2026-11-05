@@ -18,6 +18,7 @@ axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('authToken');
     if (token) {
+      config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -33,9 +34,7 @@ axiosInstance.interceptors.request.use(
  * itself is invalid (token missing/expired/rejected by auth-middleware).
  * Business 401s — "current password is incorrect", "invalid OTP",
  * "please sign in to use this reward" — must NOT wipe an authenticated
- * user's token, otherwise one bad form submission silently logs them out
- * and every following request arrives with no token ("User not
- * authenticated"). This was the intermittent admin logout.
+ * user's token.
  */
 const SESSION_INVALID_401 = [
   'not authenticated',
@@ -54,6 +53,12 @@ axiosInstance.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Attach a friendly user message for consistent UI error notifications
+    error.userMessage =
+      error.response?.data?.message ||
+      error.message ||
+      'An unexpected network or server error occurred. Please try again.';
+
     if (error.response?.status === 401) {
       const message = String(error.response?.data?.message || '').toLowerCase();
       const isSessionInvalid = SESSION_INVALID_401.some((s) => message.includes(s));
