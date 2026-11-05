@@ -29,7 +29,11 @@ export default defineConfig(({ mode }) => {
         interval: 1000,
       },
       proxy: {
-        '/api/v1/': {
+        '/api': {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+        '/health': {
           target: backendTarget,
           changeOrigin: true,
         },
