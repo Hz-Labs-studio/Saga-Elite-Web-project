@@ -1,107 +1,91 @@
-name: CI Pipeline
+name: Saga Elite CI Pipeline
 
 on:
   push:
     branches:
-      - '**'
+      - main
+      - Development
   pull_request:
     branches:
       - main
+      - Development
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  lint:
+    name: Code Quality & Linting
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
-    
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-      
-      # Client-Side Build
-      - name: Check if Client-Side exists
-        id: check-client
-        run: |
-          if [ -d "Client-Side" ] && [ -f "Client-Side/package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Client-Side folder not found - skipping client build"
-          fi
-      
-      - name: Install Client-Side Dependencies
-        if: steps.check-client.outputs.exists == 'true'
-        working-directory: ./Client-Side
-        run: npm ci || npm install
-      
-      - name: Build Client-Side
-        if: steps.check-client.outputs.exists == 'true'
-        working-directory: ./Client-Side
-        run: npm run build --if-present
-      
-      - name: Test Client-Side
-        if: steps.check-client.outputs.exists == 'true'
-        working-directory: ./Client-Side
-        run: npm test --if-present || echo "No tests configured"
-      
-      # Server-side Build
-      - name: Check if Server-side exists
-        id: check-server
-        run: |
-          if [ -d "Server-side" ] && [ -f "Server-side/package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Server-side folder not found - skipping server build"
-          fi
-      
-      - name: Install Server-side Dependencies
-        if: steps.check-server.outputs.exists == 'true'
-        working-directory: ./Server-side
-        run: npm ci || npm install
-      
-      - name: Lint Server-side Code
-        if: steps.check-server.outputs.exists == 'true'
-        working-directory: ./Server-side
-        run: npm run lint --if-present || echo "No lint configured"
-      
-      - name: Test Server-side
-        if: steps.check-server.outputs.exists == 'true'
-        working-directory: ./Server-side
-        run: npm test --if-present || echo "No tests configured"
-      
-      # Security Audit
-      - name: Run Security Audit (Client)
-        if: steps.check-client.outputs.exists == 'true'
-        working-directory: ./Client-Side
-        run: npm audit --audit-level=moderate || true
-      
-      - name: Run Security Audit (Server)
-        if: steps.check-server.outputs.exists == 'true'
-        working-directory: ./Server-side
-        run: npm audit --audit-level=moderate || true
-      
-      # Summary
-      - name: CI Success
-        run: |
-          echo "✅ CI Pipeline completed!"
-          echo "📦 Client-Side: ${{ steps.check-client.outputs.exists == 'true' && 'Built' || 'Skipped (not found)' }}"
-          echo "🔧 Server-side: ${{ steps.check-server.outputs.exists == 'true' && 'Built' || 'Skipped (not found)' }}"
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  unit-and-integration:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Unit Tests
+        run: npm run test:unit
+
+      - name: Run Integration Tests
+        run: npm run test:integration
+
+  frontend-build:
+    name: Frontend Production Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Frontend Application
+        run: npm run build
 
   e2e-tests:
-    name: Playwright E2E
-    needs: build-and-test
+    name: Playwright End-to-End Tests
+    needs: [lint, unit-and-integration, frontend-build]
     runs-on: ubuntu-latest
+
     services:
       mongo:
-        image: mongo:7
+        image: mongo:7.0
         ports:
           - 27017:27017
         options: >-
@@ -111,44 +95,33 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20.x
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20.x
           cache: npm
-          cache-dependency-path: package-lock.json
 
-      - name: Install Server-side dependencies
-        working-directory: ./Server-side
-        run: npm ci || npm install
-
-      - name: Install Client-Side dependencies
-        working-directory: ./Client-Side
-        run: npm ci || npm install
-
-      - name: Install root dependencies (including Playwright)
+      - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Verify Playwright CLI
-        run: npx playwright --version
-
-      - name: Prepare e2e env file
+      - name: Prepare E2E Test Environment
         run: cp e2e/.env.test.example e2e/.env.test
 
-      - name: Run Playwright suite
+      - name: Run Playwright E2E Suite
         env:
           CI: "1"
-          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/saga_elite_test
           NODE_ENV: test
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/saga_elite_test
+          JWT_SECRET: test-jwt-secret-must-be-at-least-32-characters-long
         run: npm run test:e2e
 
-      - name: Upload Playwright report
+      - name: Upload Playwright Report on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -156,7 +129,7 @@ jobs:
           path: e2e/playwright-report
           retention-days: 7
 
-      - name: Upload trace artifacts
+      - name: Upload Playwright Traces on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
