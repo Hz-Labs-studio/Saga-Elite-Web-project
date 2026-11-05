@@ -227,7 +227,7 @@ manualPaymentSchema.pre("save", function setExpiry() {
 });
 
 manualPaymentSchema.index({ status: 1, createdAt: -1 });
-manualPaymentSchema.index({ expiresAt: 1 });
+// manualPaymentSchema.index({ expiresAt: 1 }); // Already declared on expiresAt field
 manualPaymentSchema.index({ orderId: 1, status: 1 });
 manualPaymentSchema.index({ paymentType: 1, status: 1, createdAt: -1 });
 

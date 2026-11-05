@@ -36,7 +36,6 @@ const guestSchema = new mongoose.Schema(
       type: String,
       unique: true,
       sparse: true,
-      index: true,
     },
     name: { type: String, trim: true },
     phone: { type: String, trim: true },
@@ -64,7 +63,7 @@ const guestSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-guestSchema.index({ email: 1 });
+// guestSchema.index({ email: 1 }); // Already declared via email.unique
 
 // Cap activity log to last 200 entries to prevent unbounded growth.
 guestSchema.pre("save", function () {
