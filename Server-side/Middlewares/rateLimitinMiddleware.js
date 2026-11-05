@@ -1,6 +1,7 @@
 const rateLimiting = require("express-rate-limit");
 
 const isProduction = process.env.NODE_ENV === "production";
+const isTest = process.env.NODE_ENV === "test";
 
 const parsePositiveNumber = (value, fallback) => {
     const parsed = Number(value);
@@ -13,6 +14,9 @@ const devMultiplier = parsePositiveNumber(
 );
 
 const getMaxRequests = (baseMax) => {
+    if (isTest) {
+        return 100000;
+    }
     if (isProduction) {
         return baseMax;
     }

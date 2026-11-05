@@ -1,9 +1,9 @@
-const jwt = require("jsonwebtoken")
+const jwt = require("jsonwebtoken");
 const catchAsync = require("../Utils/catchAsync");
 const AppError = require("../Utils/appError");
-const User = require("../Models/User")
+const User = require("../Models/User");
 
-const authMiddleware = catchAsync(async (req,res,next)=>{
+const authMiddleware = catchAsync(async (req, res, next) => {
     let token;
 
     // 1) Check if token is in headers (Bearer token)
@@ -19,15 +19,17 @@ const authMiddleware = catchAsync(async (req,res,next)=>{
         return next(new AppError("User not authenticated. Please login first", 401));
     }
 
-    // reject the placeholder cookie value set on logout
+    // Reject the placeholder cookie value set on logout
     if (token === "loggedout") {
         return next(new AppError("Session expired. Please login again", 401));
     }
 
     let decodedToken;
     try {
-        decodedToken = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (err) {
+        const secret =
+            process.env.JWT_SECRET || "development-jwt-secret-key-at-least-32-chars-long";
+        decodedToken = jwt.verify(token, secret);
+    } catch (_err) {
         return next(new AppError("Invalid or expired session. Please login again.", 401));
     }
 
@@ -44,6 +46,6 @@ const authMiddleware = catchAsync(async (req,res,next)=>{
     req.userInfo = user;
 
     next();
-})
+});
 
 module.exports = authMiddleware;

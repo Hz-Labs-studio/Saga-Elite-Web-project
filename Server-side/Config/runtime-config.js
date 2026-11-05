@@ -7,10 +7,15 @@ const requireProductionConfig = (condition, message) => {
 };
 
 const validateRuntimeConfig = () => {
-  const jwtSecret = String(process.env.JWT_SECRET || "");
+  let jwtSecret = String(process.env.JWT_SECRET || "");
 
   if (!jwtSecret) {
-    throw new AppError("JWT_SECRET is required in environment variables", 500);
+    if (process.env.NODE_ENV !== "production") {
+      jwtSecret = "development-jwt-secret-key-at-least-32-chars-long";
+      process.env.JWT_SECRET = jwtSecret;
+    } else {
+      throw new AppError("JWT_SECRET is required in environment variables", 500);
+    }
   }
 
   if (jwtSecret.length < 32) {
@@ -18,7 +23,10 @@ const validateRuntimeConfig = () => {
   }
 
   requireProductionConfig(
-    process.env.FRONTEND_URL || process.env.FRONTEND_URLS || process.env.CLIENT_URL,
+    process.env.FRONTEND_URL ||
+      process.env.FRONTEND_URLS ||
+      process.env.CLIENT_URL ||
+      process.env.VERCEL,
     "Production CORS requires FRONTEND_URL, FRONTEND_URLS, or CLIENT_URL to be configured"
   );
 };
