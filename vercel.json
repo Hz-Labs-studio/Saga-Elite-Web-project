@@ -23,5 +23,23 @@
       "maxDuration": 30,
       "memory": 1024
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/v1/cron/cleanup-expired-payments",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/v1/cron/aging-stock",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/v1/cron/cart-abandonment",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/v1/cron/guest-promo",
+      "schedule": "0 10 * * *"
+    }
+  ]
 }

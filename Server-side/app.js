@@ -114,12 +114,17 @@ const guestRoutes = require("./Routes/guestRoutes");
 const customerRoutes = require("./Routes/customerRoutes");
 const eventRoutes = require("./Routes/eventRoutes");
 const statsRoutes = require("./Routes/stats-routes");
+const cronRoutes = require("./Routes/cron-routes");
 
 // Webhooks
 app.use("/api/webhooks/whatsapp", whatsappWebhookRoutes);
 app.use("/api/webhooks/bank-sms", require("./Routes/bank-sms-webhook-routes"));
 app.use("/api/webhooks/payhere", require("./Routes/payhere-webhook-routes"));
 app.use("/api/v1/payhere/notify", require("./Routes/payhere-webhook-routes"));
+
+// Scheduled Cron Endpoints
+app.use("/api/v1/cron", cronRoutes);
+app.use("/api/cron", cronRoutes);
 
 // Dev-only routes
 if (String(process.env.NODE_ENV || "").toLowerCase() !== "production") {
