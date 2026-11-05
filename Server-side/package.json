@@ -12,7 +12,8 @@
     "seed:reviews": "node scripts/seed-dummy-reviews.js",
     "seed:legal": "node scripts/seedLegalPolicies.js",
     "lint": "eslint .",
-    "test": "echo \"No tests implemented yet\" && exit 0"
+    "test": "vitest run",
+    "test:unit": "vitest run"
   },
   "keywords": [
     "express",
@@ -52,5 +53,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
   }
 }
