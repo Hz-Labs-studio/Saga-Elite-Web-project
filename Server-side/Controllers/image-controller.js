@@ -7,7 +7,7 @@ const cloudinary = require("../Config/cloudinary-config");
 const uploadToCloudinary = require("../Utils/image-upload");
 const Product = require("../Models/Product");
 const Drop = require("../Models/Drop");
-const winston = require("winston");
+const logger = require("../Utils/logger");
 const { imageSize } = require("image-size");
 const {
   deleteLocalImage,
@@ -83,26 +83,8 @@ const storagePathSegment = (value, fallback = "misc") => {
   return segment || fallback;
 };
 
-// Configure Winston logger for image actions
-const actionLogger = winston.createLogger({
-  level: "info",
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: "logs/image-actions.log" }),
-  ],
-});
-
-// Add console logging in non-production
-if (process.env.NODE_ENV !== "production") {
-  actionLogger.add(
-    new winston.transports.Console({
-      format: winston.format.simple(),
-    })
-  );
-}
+// Reuse centralized Winston logger for image actions
+const actionLogger = logger;
 
 const isTransientUploadFailure = (errors = []) =>
   errors.some((error) =>
@@ -112,6 +94,8 @@ const isTransientUploadFailure = (errors = []) =>
   );
 
 const isLocalImageFallbackEnabled = () => {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless) return false;
   const runtimeEnv = String(process.env.NODE_ENV || "development").toLowerCase();
   const disabled =
     String(process.env.DISABLE_LOCAL_IMAGE_FALLBACK || "").toLowerCase() === "true";
